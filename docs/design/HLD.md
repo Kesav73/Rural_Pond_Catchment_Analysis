@@ -31,7 +31,7 @@ flowchart TD
         RC["Runoff Calculator<br/>(rainfall + pond sizing)"]
     end
 
-    DB[("MongoDB<br/>(cache + saved proposals)")]
+    DB[("PostgreSQL / Neon<br/>(cache + saved proposals)")]
 
     subgraph Ext["External APIs"]
         E1[Esri Imagery]
@@ -50,7 +50,7 @@ flowchart TD
 
 Satellite tiles are the one thing the browser fetches directly from Esri — nothing for the backend to
 compute there, only display. Everything else (region lookup, contours, candidate zones, catchment,
-rainfall, sizing) runs through the FastAPI backend, which checks MongoDB first and only calls out to the
+rainfall, sizing) runs through the FastAPI backend, which checks the Postgres cache first and only calls out to the
 external APIs on a cache miss.
 
 ---
@@ -77,7 +77,7 @@ rainfall · FR6 runoff volume · FR7 pond depth/capacity · FR8 combined overlay
 |---|---|
 | Frontend | Leaflet.js + Leaflet-Geoman (polygon drawing) |
 | Backend | FastAPI (Python) — async fits well since most endpoints wait on external APIs; auto-generated OpenAPI docs double as API documentation |
-| Database | MongoDB — district data, cached API responses, and saved proposals are all naturally document-shaped |
+| Database | PostgreSQL (Neon, serverless free tier) — district data, cached API responses, and saved proposals are stored as JSONB; switched from an initial MongoDB plan since every DB access here is single-key JSON lookups with no in-DB spatial queries (all geometry compute is numpy/OpenCV), so JSONB covers the need without a separate document store |
 | Imagery | Esri World Imagery (free, keyless) |
 | Elevation | AWS Terrain Tiles (free, keyless, PNG-encoded — avoids a GDAL dependency) |
 | Rainfall | Open-Meteo Archive (free, keyless) |
@@ -94,21 +94,21 @@ implemented directly in numpy, which keeps the whole stack pip-installable.
 ### 5.1 Internal API (FastAPI backend)
 
 All responses are JSON; all geometry is GeoJSON in WGS84 with `[lon, lat]` ordering. `bbox` is passed as
-`minLon,minLat,maxLon,maxLat`. Every endpoint that touches an external service checks the MongoDB cache
+`minLon,minLat,maxLon,maxLat`. Every endpoint that touches an external service checks the Postgres cache
 first, keyed by region/bbox, and only calls out on a miss.
 
 | Method | Endpoint | Request | Response | Work behind it |
 |---|---|---|---|---|
-| GET | `/api/states` | — | List of states/UTs | Mongo lookup (seeded from `india.geojson`) |
-| GET | `/api/districts?state=` | state name | Districts, each with centroid + bbox | Mongo lookup; centroid is what the map centers on (FR1) |
+| GET | `/api/states` | — | List of states/UTs | Postgres lookup (seeded from `india.geojson`) |
+| GET | `/api/districts?state=` | state name | Districts, each with centroid + bbox | Postgres lookup; centroid is what the map centers on (FR1) |
 | GET | `/api/contours?bbox=&interval=` | bbox, band interval (m) | `FeatureCollection` of contour rings, each tagged with its elevation | Fetch terrain tiles → decode → smooth → threshold per band → `findContours` (FR2) |
 | GET | `/api/candidates?bbox=&min_depth=&min_area=` | bbox, depth/area thresholds | `FeatureCollection` of depressions, ranked | Priority-Flood fill → `depth = filled − original` → connected components (FR3) |
 | GET | `/api/buildings?bbox=` | bbox | `FeatureCollection` of building footprints | Overpass passthrough + cache; drawn as a warning layer, not a hard filter |
 | POST | `/api/catchment` | user-drawn polygon (GeoJSON) | Catchment polygon + `area_ha`, pour-point coords | Epsilon fill → D8 → flow accumulation → upstream flood-fill (FR4) |
 | GET | `/api/rainfall?lat=&lon=&years=` | point + lookback window | Annual mean total, max single-day, series metadata | Open-Meteo Archive + cache (FR5) |
 | POST | `/api/pond-plan` | pond polygon, catchment area, rainfall figures | Runoff volume, recommended depth, capacity, capture % | Rational Method, then capacity vs. volume (FR6, FR7) |
-| POST | `/api/proposals` | Full result set for one site | `proposal_id` | Insert into Mongo |
-| GET | `/api/proposals/<id>` | proposal id | The saved proposal | Mongo lookup |
+| POST | `/api/proposals` | Full result set for one site | `proposal_id` | Insert into Postgres |
+| GET | `/api/proposals/<id>` | proposal id | The saved proposal | Postgres lookup |
 
 Three of these carry the design decisions that matter:
 

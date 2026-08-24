@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Village Pond Planning System</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="controls">
+    <label>
+      State
+      <select id="state-select">
+        <option value="">Select state…</option>
+      </select>
+    </label>
+    <label>
+      District
+      <select id="district-select" disabled>
+        <option value="">Select district…</option>
+      </select>
+    </label>
+    <button id="go-btn" disabled>Enter</button>
+    <span id="status-msg"></span>
+  </header>
+
+  <main id="map"></main>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/leaflet-geoman/leaflet-geoman.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

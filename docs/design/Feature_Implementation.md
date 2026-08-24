@@ -16,7 +16,7 @@ convention (`{z}/{x}/{y}`), which is used elsewhere (e.g. Overpass-adjacent tool
 them on a canvas. No backend image library is involved in this FR.
 
 **Wiring:**
-1. Backend resolves the selected district to a centroid (from Mongo-seeded `india.geojson` data — see
+1. Backend resolves the selected district to a centroid (from Postgres-seeded `india.geojson` data — see
    precursor/region-selection notes).
 2. Frontend receives the centroid, initializes the Leaflet map centered on it.
 3. Frontend adds the Esri tile layer.

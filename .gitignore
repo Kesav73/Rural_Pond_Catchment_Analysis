@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Env
+.env
+
+# Cache / downloaded data
+backend/cache/
+backend/data/*.geojson
+
+# OS
+.DS_Store
+
+# Local task tracking, not for the repo
+Tasks.md
