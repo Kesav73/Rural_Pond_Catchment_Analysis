@@ -6,6 +6,7 @@ _pool: asyncpg.Pool | None = None
 
 # Table name constants — kept in one place so routers/services never hardcode strings.
 DISTRICTS = "districts"
+VILLAGES = "villages"
 TILE_CACHE = "tile_cache"
 RAINFALL_CACHE = "rainfall_cache"
 OVERPASS_CACHE = "overpass_cache"
@@ -21,6 +22,21 @@ CREATE TABLE IF NOT EXISTS {DISTRICTS} (
     bbox JSONB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_districts_state ON {DISTRICTS} (state_name);
+
+CREATE TABLE IF NOT EXISTS {VILLAGES} (
+    id SERIAL PRIMARY KEY,
+    state_name TEXT NOT NULL,
+    district_name TEXT NOT NULL,
+    subdistrict_name TEXT,
+    block_name TEXT,
+    gp_name TEXT,
+    village_name TEXT NOT NULL,
+    vil_lgd INTEGER,
+    geometry JSONB NOT NULL,
+    centroid JSONB NOT NULL,
+    bbox JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_villages_district ON {VILLAGES} (state_name, district_name);
 
 CREATE TABLE IF NOT EXISTS {TILE_CACHE} (
     cache_key TEXT PRIMARY KEY,

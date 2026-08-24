@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.db import postgres
+from app.routers import regions
 
 
 @asynccontextmanager
@@ -34,3 +35,6 @@ async def health():
 async def health_db():
     ok = await postgres.ping()
     return {"status": "ok" if ok else "unreachable"}
+
+
+app.include_router(regions.router)

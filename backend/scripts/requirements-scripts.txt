@@ -1,0 +1,4 @@
+# Extra deps for one-off data-seeding scripts only — not needed by the running app,
+# so kept out of the main requirements.txt. Install with:
+#   pip install -r scripts/requirements-scripts.txt
+duckdb==1.5.5

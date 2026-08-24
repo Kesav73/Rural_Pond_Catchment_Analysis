@@ -99,8 +99,9 @@ first, keyed by region/bbox, and only calls out on a miss.
 
 | Method | Endpoint | Request | Response | Work behind it |
 |---|---|---|---|---|
-| GET | `/api/states` | — | List of states/UTs | Postgres lookup (seeded from `india.geojson`) |
+| GET | `/api/states` | — | List of states/UTs | Postgres lookup (seeded from LGD_Districts) |
 | GET | `/api/districts?state=` | state name | Districts, each with centroid + bbox | Postgres lookup; centroid is what the map centers on (FR1) |
+| GET | `/api/villages?district=` | district name | Villages (currently Chhattisgarh only), each with centroid + bbox | Postgres lookup, seeded from LGD_Villages; empty list for districts without village data |
 | GET | `/api/contours?bbox=&interval=` | bbox, band interval (m) | `FeatureCollection` of contour rings, each tagged with its elevation | Fetch terrain tiles → decode → smooth → threshold per band → `findContours` (FR2) |
 | GET | `/api/candidates?bbox=&min_depth=&min_area=` | bbox, depth/area thresholds | `FeatureCollection` of depressions, ranked | Priority-Flood fill → `depth = filled − original` → connected components (FR3) |
 | GET | `/api/buildings?bbox=` | bbox | `FeatureCollection` of building footprints | Overpass passthrough + cache; drawn as a warning layer, not a hard filter |
