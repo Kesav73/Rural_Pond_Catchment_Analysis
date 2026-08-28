@@ -12,23 +12,28 @@
   <header id="controls">
     <label>
       State
-      <select id="state-select">
-        <option value="">Select state…</option>
-      </select>
+      <div class="combo">
+        <input type="text" id="state-input" placeholder="Loading states…" autocomplete="off">
+        <div class="combo-list" id="state-list" hidden></div>
+      </div>
     </label>
     <label>
       District
-      <select id="district-select" disabled>
-        <option value="">Select district…</option>
-      </select>
+      <div class="combo">
+        <input type="text" id="district-input" placeholder="Select state first…" autocomplete="off" disabled>
+        <div class="combo-list" id="district-list" hidden></div>
+      </div>
     </label>
     <label>
       Village <span id="village-hint"></span>
-      <select id="village-select" disabled>
-        <option value="">Select village…</option>
-      </select>
+      <div class="combo">
+        <input type="text" id="village-input" placeholder="Select district first…" autocomplete="off" disabled>
+        <div class="combo-list" id="village-list" hidden></div>
+      </div>
     </label>
     <button id="go-btn" disabled>Enter</button>
+    <button id="contours-btn" disabled>Show Contours</button>
+    <button id="candidates-btn" disabled>Find Pond Sites</button>
     <span id="status-msg"></span>
   </header>
 

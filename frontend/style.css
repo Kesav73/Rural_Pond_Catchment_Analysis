@@ -20,9 +20,49 @@ html, body {
   gap: 2px;
 }
 
-#controls select, #controls button {
+#controls select, #controls button, #controls input {
   font-size: 14px;
   padding: 4px 8px;
+}
+
+.combo {
+  position: relative;
+}
+
+.combo input {
+  width: 180px;
+  box-sizing: border-box;
+}
+
+.combo input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.combo-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  color: #222;
+  border: 1px solid #999;
+  border-radius: 2px;
+  z-index: 1000;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.combo-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.combo-item:hover, .combo-item.active {
+  background: #cfe0ff;
 }
 
 #status-msg {
@@ -33,4 +73,87 @@ html, body {
 #map {
   height: calc(100% - 52px);
   width: 100%;
+}
+
+.legend {
+  background: rgba(31, 42, 36, 0.9);
+  color: #f0f0f0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: system-ui, sans-serif;
+}
+
+.legend-title {
+  margin-bottom: 4px;
+}
+
+.legend-bar {
+  width: 160px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.candidate-popup h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.candidate-popup table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.candidate-popup td {
+  padding: 1px 6px 1px 0;
+}
+
+.candidate-popup td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.catchment-warning {
+  margin-top: 5px;
+  padding: 4px 6px;
+  background: #fff4e5;
+  border-left: 3px solid #f0a020;
+  font-size: 11px;
+  color: #6b4a10;
+  max-width: 220px;
+}
+
+.catchment-pending {
+  margin-top: 5px;
+  font-size: 11px;
+  color: #777;
+  font-style: italic;
+}
+
+.candidate-caveat {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid #ccc;
+  font-size: 11px;
+  color: #555;
+  max-width: 220px;
+}
+
+.rank-badge {
+  display: inline-block;
+  min-width: 15px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #1f2a24;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }

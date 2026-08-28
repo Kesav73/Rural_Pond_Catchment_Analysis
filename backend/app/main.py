@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.db import postgres
-from app.routers import regions
+from app.routers import candidates, catchment, contours, regions
 
 
 @asynccontextmanager
@@ -38,3 +38,6 @@ async def health_db():
 
 
 app.include_router(regions.router)
+app.include_router(contours.router)
+app.include_router(candidates.router)
+app.include_router(catchment.router)
