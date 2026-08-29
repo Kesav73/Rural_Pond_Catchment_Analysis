@@ -370,29 +370,53 @@ function rankColor(rank) {
   return RANK_COLORS[Math.min(rank - 1, RANK_COLORS.length - 1)];
 }
 
+// Phase 6 moved sizing upstream of ranking, so runoff/capacity/capture now arrive WITH the
+// candidates instead of trailing behind the catchment call. Only the catchment *polygon* and its
+// warnings still come later, so the popup is useful immediately.
 function candidatePopup(properties, featureIndex) {
   const rows = [
     ["Area", `${properties.area_ha.toFixed(2)} ha`],
     ["Mean depth", `${properties.mean_depth_m.toFixed(2)} m`],
     ["Max depth", `${properties.max_depth_m.toFixed(2)} m`],
-    ["Est. storage", `${Math.round(properties.storage_volume_m3).toLocaleString()} m³`],
     ["Compactness", properties.compactness.toFixed(3)],
   ];
 
+  if (properties.catchment_area_m2 != null) {
+    const catchHa = properties.catchment_area_m2 / 10000;
+    const ratio = catchHa / properties.area_ha;
+    rows.push(["Catchment", `${catchHa.toFixed(1)} ha`]);
+    rows.push(["Catchment ratio", `${ratio.toFixed(0)}×`]);
+  }
+  if (properties.capacity_m3 != null) {
+    rows.push(["Pond capacity", `${Math.round(properties.capacity_m3).toLocaleString()} m³`]);
+  }
+  if (properties.runoff_m3 != null) {
+    rows.push(["Storm runoff", `${Math.round(properties.runoff_m3).toLocaleString()} m³`]);
+  }
+  if (properties.capture_fraction != null) {
+    rows.push(["Captures", `${(properties.capture_fraction * 100).toFixed(0)}% of one storm`]);
+  }
+  if (properties.fill_ratio != null) {
+    const fill = properties.fill_ratio;
+    rows.push(["Fills", fill >= 1 ? `${fill.toFixed(1)}× over` : `${(fill * 100).toFixed(0)}% full`]);
+  }
+
   const catchment = catchmentsByIndex[featureIndex];
-  let catchmentBlock = `<div class="catchment-pending">Calculating catchment…</div>`;
+  let catchmentBlock = `<div class="catchment-pending">Delineating catchment…</div>`;
   if (catchment && catchment.error) {
-    catchmentBlock = `<div class="catchment-pending">Catchment unavailable: ${catchment.error}</div>`;
+    catchmentBlock = `<div class="catchment-pending">Catchment outline unavailable: ${catchment.error}</div>`;
   } else if (catchment) {
-    rows.push(["Catchment", `${catchment.area_ha.toFixed(1)} ha`]);
-    rows.push(["Catchment ratio", `${catchment.catchment_to_pond_ratio.toFixed(0)}×`]);
-    if (catchment.rainfall && catchment.rainfall.available) {
-      rows.push(["Annual rain", `${catchment.rainfall.annual_mean_mm.toFixed(0)} mm`]);
-      rows.push(["Design storm", `${catchment.rainfall.max_single_day_mm.toFixed(1)} mm`]);
-    }
     catchmentBlock = (catchment.warnings || [])
       .map((w) => `<div class="catchment-warning">⚠ ${w}</div>`)
       .join("");
+  }
+
+  // A site that cannot fill in one design storm is the failure the Phase 6 rework exists to
+  // surface, so it is called out rather than left for the reader to infer from the numbers.
+  if (properties.fill_ratio != null && properties.fill_ratio < 1) {
+    catchmentBlock =
+      `<div class="catchment-warning">⚠ one design storm fills this to only ` +
+      `${(properties.fill_ratio * 100).toFixed(0)}% — it may never fill</div>` + catchmentBlock;
   }
 
   return `
@@ -403,8 +427,8 @@ function candidatePopup(properties, featureIndex) {
         .join("")}</table>
       ${catchmentBlock}
       <div class="candidate-caveat">
-        Auto-detected from terrain and screened against known water bodies — not a check of land
-        ownership or availability.
+        Screened against known water bodies (2021 satellite data) — <strong>not</strong> a check of
+        land ownership or availability. A shortlist to visit, not an approval.
       </div>
     </div>`;
 }
@@ -452,19 +476,12 @@ async function loadCatchments(bbox, features) {
     if (!res.ok) return;
     const body = await res.json();
 
-    await Promise.all(
-      body.results.map(async (result) => {
-        catchmentsByIndex[result.index] = result;
-        if (result.error || !result.pour_point) return;
-        try {
-          const { lat, lon } = result.pour_point;
-          const rainRes = await fetch(`${API_BASE}/rainfall?lat=${lat}&lon=${lon}`);
-          if (rainRes.ok) result.rainfall = await rainRes.json();
-        } catch (err) {
-          /* rainfall is supplementary; leave it off the popup if it fails */
-        }
-      })
-    );
+    // No per-candidate rainfall fetch any more: rainfall is constant across a viewport (a ~10 km
+    // view sits inside one ~25 km ERA5 cell), so /api/candidates fetches it once and the sizing
+    // numbers already arrived with the candidates. This call now only supplies catchment outlines.
+    for (const result of body.results) {
+      catchmentsByIndex[result.index] = result;
+    }
 
     // Popups were bound before these numbers existed — rebind so an already-open one updates.
     if (candidateLayer) {
@@ -521,7 +538,7 @@ async function loadCandidates() {
     if (body.features.length === 0) {
       setStatus(
         `No suitable sites in view — ${summary.zones_in_view} depressions checked, all filtered ` +
-          `out (${summary.excluded_shape} stream-like, ${summary.excluded_water} existing water).`
+          `out (${summary.excluded_water} on/near existing water, ${summary.excluded_shape} drainage-like).`
       );
       return;
     }
@@ -550,15 +567,18 @@ async function loadCandidates() {
     // status for ~20s even though the candidates were already drawn. Let it fill in late.
     loadBuildings(bbox);
 
-    // Be explicit when a water source was unavailable rather than implying a full screen ran.
+    // Be explicit when a source was unavailable rather than implying a full screen ran (9.6).
     const degraded = [];
-    if (!summary.overpass_available) degraded.push("OSM");
     if (!summary.worldcover_available) degraded.push("WorldCover");
-    const caveat = degraded.length ? ` — ${degraded.join("+")} water check unavailable` : "";
+    if (!summary.swir_available) degraded.push("SWIR");
+    if (!summary.overpass_available) degraded.push("OSM");
+    if (!summary.rainfall_available) degraded.push("rainfall");
+    const caveat = degraded.length ? ` — unavailable: ${degraded.join(", ")}` : "";
 
     setStatus(
       `Top ${summary.returned} of ${summary.eligible} sites ` +
-        `(${summary.excluded_shape} stream-like, ${summary.excluded_water} existing water excluded)${caveat}`
+        `(${summary.excluded_water} on/near existing water, ${summary.excluded_shape} drainage-like, excluded) ` +
+        `· ${summary.design_storm_mm.toFixed(0)} mm design storm${caveat}`
     );
 
     loadCatchments(bbox, body.features); // background, same reasoning as buildings above

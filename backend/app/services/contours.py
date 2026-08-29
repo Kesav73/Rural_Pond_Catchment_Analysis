@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from scipy.ndimage import gaussian_filter
 
-from app.services.elevation import pixel_to_lonlat
+from app.services.gridref import GridRef
 
 # Verification (real Chhattisgarh farmland tile, z14 ~8.9m/px) found sigma=1 left pixel-level
 # speckle that broke real drainage channels into noisy salt-and-pepper bands. At the original
@@ -23,7 +23,7 @@ def smooth(grid: np.ndarray, sigma: float = DEFAULT_SIGMA) -> np.ndarray:
 
 
 def extract_contour_bands(
-    grid: np.ndarray, xmin_tile: int, ymin_tile: int, zoom: int, interval: float = 5.0
+    grid: np.ndarray, gridref: GridRef, interval: float = 5.0
 ) -> dict:
     """Threshold the elevation grid into interval-wide bands, trace each band's outline via
     findContours/approxPolyDP, and return one GeoJSON polygon per contiguous band region —
@@ -44,7 +44,7 @@ def extract_contour_bands(
                 if len(approx) < 3:
                     continue
                 ring = [
-                    pixel_to_lonlat(pt[0][0], pt[0][1], xmin_tile, ymin_tile, zoom)
+                    gridref.pixel_to_lonlat(pt[0][0], pt[0][1])
                     for pt in approx
                 ]
                 ring.append(ring[0])  # GeoJSON polygon rings must close

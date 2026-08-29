@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.db import postgres
 from app.services import contours as contours_service
 from app.services import elevation as elevation_service
+from app.services import gridref as gridref_service
 
 router = APIRouter(prefix="/api", tags=["contours"])
 
@@ -40,7 +41,8 @@ async def get_contours(bbox: str, interval: float = 2.0):
         raise HTTPException(status_code=400, detail=str(exc))
 
     smoothed = contours_service.smooth(grid)
-    result = contours_service.extract_contour_bands(smoothed, xmin_tile, ymin_tile, zoom, interval)
+    gridref = gridref_service.TileGridRef(xmin_tile, ymin_tile, zoom, grid.shape)
+    result = contours_service.extract_contour_bands(smoothed, gridref, interval)
 
     async with pool.acquire() as conn:
         await conn.execute(

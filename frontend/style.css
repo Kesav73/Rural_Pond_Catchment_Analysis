@@ -4,6 +4,17 @@ html, body {
   font-family: system-ui, sans-serif;
 }
 
+/* Column flex so the map takes exactly the leftover height. This replaces a hardcoded
+   `calc(100% - 52px)` on #map, which assumed a fixed control-bar height: once the village hint
+   ("(377 available — required)") wrapped onto its own line the bar grew to 76px, the map overflowed
+   by 24px, and the whole page became vertically scrollable — dragging the map scrolled the document
+   instead, leaving a grey band below it. Flex has no magic number to fall out of date. */
+body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 #controls {
   display: flex;
   align-items: center;
@@ -11,6 +22,7 @@ html, body {
   padding: 8px 12px;
   background: #1f2a24;
   color: #f0f0f0;
+  flex: 0 0 auto;
 }
 
 #controls label {
@@ -71,7 +83,8 @@ html, body {
 }
 
 #map {
-  height: calc(100% - 52px);
+  flex: 1 1 auto;
+  min-height: 0; /* without this a flex item refuses to shrink below its content height */
   width: 100%;
 }
 

@@ -6,6 +6,7 @@ import numpy as np
 from scipy.ndimage import find_objects, label
 
 from app.services import elevation as elevation_service
+from app.services.gridref import GridRef
 
 # 8-connected, matching D8 flow direction (Phase 4) so the same neighbor model is used
 # throughout the terrain pipeline.
@@ -15,7 +16,15 @@ _NEIGHBORS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 
 # explicitly to get 8-connected labeling, matching the priority-flood fill's neighbor model.
 _LABEL_STRUCTURE = np.ones((3, 3), dtype=bool)
 
-DEFAULT_MIN_DEPTH_M = 0.3
+# Minimum depression depth to count as a candidate. Raised 0.3 -> 1.5 m (Tasks.md 3.10) because
+# the DEM cannot support 0.3 m: AWS Terrarium z14 is *interpolated* from a ~30 m source, not real
+# 8.9 m data. Measured on the Bhilai test bbox by comparing a z14 tile against the same ground
+# upsampled from z12: correlation 0.98665, mean |difference| 0.641 m. The z14-only "detail" is
+# therefore ~2x the old threshold, so most 0.3 m "depressions" were resampling artefacts.
+# 1.5 m sits above that envelope and still leaves 455 candidates on Bhilai (vs 1,496 at 0.3 m) —
+# far more than the top-5 needed. 30 m is the ceiling for free global DEMs (SRTM, Copernicus
+# GLO-30, ISRO CartoDEM), so the fix is this threshold, not a better DEM — do not lower it back.
+DEFAULT_MIN_DEPTH_M = 1.5
 
 # Candidate detection needs its own (lighter) smoothing pass before Priority-Flood — reuses
 # contours.smooth(), but NOT contours' own sigma (10): that value was tuned to suppress small-scale
@@ -32,13 +41,77 @@ DEFAULT_MIN_AREA_M2 = 200.0
 # payload size: a raw pixel-staircase boundary inflates perimeter, which deflates compactness.
 _APPROX_EPSILON_PX = 1.0
 
-# Hard floor that rejects stream corridors. Compactness of an ideal rectangle at aspect ratio r
-# is pi*r/(1+r)^2, so 0.5 ~= a 4:1 rectangle — about as elongated as a pond site can sensibly be.
-# On the Bhilai test bbox this drops 21 of 220 zones, including the 43.8 ha stream corridor
-# (compactness 0.148, below the 1st percentile) that used to rank first by raw area.
+# Shape floor. Compactness of an ideal rectangle at aspect ratio r is pi*r/(1+r)^2, so 0.5 ~= a
+# 4:1 rectangle — about as elongated as a pond site can sensibly be. On the Bhilai test bbox this
+# drops 21 of 220 zones, including the 43.8 ha stream corridor (compactness 0.148, below the 1st
+# percentile) that used to rank first by raw area.
+#
+# DEMOTED (Tasks.md 3.13): this is no longer the primary river filter — map/satellite data is
+# (WorldCover + SWIR + OSM, see water_exclusion). What it still covers is the case map data cannot:
+# seasonal nalas not in OSM and too narrow or too dry for WorldCover's 10 m water class, which are
+# common in rural Chhattisgarh. That matters specifically *because* ranking is now driven by
+# catchment size: an unmapped drainage line has a huge catchment and nothing else would flag it.
+# So the reason text below says "likely an unmapped drainage line" rather than claiming a positive
+# river identification, which this test cannot make.
 MIN_COMPACTNESS = 0.5
 
 DEFAULT_TOP_N = 5
+
+
+def _flood_fill_core(grid: np.ndarray, epsilon: float) -> np.ndarray:
+    """Shared Priority-Flood engine for both the plain (epsilon=0) and gradient variants.
+
+    Same algorithm as before, but the hot loop works on flat Python lists over a 1-cell padded
+    grid instead of on 2-D numpy scalars. Two costs dominated the original: numpy scalar indexing
+    (`visited[nr, nc]`, `filled[nr, nc]`) is ~100x slower than a list index, and every neighbour
+    needed four bounds comparisons. Padding the border with a sentinel that is pre-marked visited
+    removes the bounds checks entirely, so neighbours are just `index + offset`.
+
+    Measured on the 2048x1792 Bhilai grid (3.67M cells): 42.3s -> see Tasks.md 4.9. Behaviour is
+    unchanged — `test_flood_fill_equivalence` asserts identical output against the original.
+    """
+    rows, cols = grid.shape
+    padded_cols = cols + 2
+
+    # Sentinel border: +inf so it can never lower a real cell, pre-visited so it is never expanded.
+    padded = np.full((rows + 2, padded_cols), np.inf, dtype=np.float64)
+    padded[1:-1, 1:-1] = grid
+    filled = padded.ravel().tolist()
+
+    visited = [True] * ((rows + 2) * padded_cols)
+    for r in range(1, rows + 1):
+        for c in range(1, cols + 1):
+            visited[r * padded_cols + c] = False
+
+    offsets = [dr * padded_cols + dc for dr, dc in _NEIGHBORS]
+
+    heap = []
+    for r in range(1, rows + 1):
+        for c in (1, cols):
+            index = r * padded_cols + c
+            if not visited[index]:
+                visited[index] = True
+                heapq.heappush(heap, (filled[index], index))
+    for c in range(1, cols + 1):
+        for r in (1, rows):
+            index = r * padded_cols + c
+            if not visited[index]:
+                visited[index] = True
+                heapq.heappush(heap, (filled[index], index))
+
+    heappop, heappush = heapq.heappop, heapq.heappush
+    while heap:
+        elevation, index = heappop(heap)
+        raised = elevation + epsilon
+        for offset in offsets:
+            neighbour = index + offset
+            if not visited[neighbour]:
+                visited[neighbour] = True
+                if filled[neighbour] < raised:
+                    filled[neighbour] = raised
+                heappush(heap, (filled[neighbour], neighbour))
+
+    return np.array(filled, dtype=np.float64).reshape(rows + 2, padded_cols)[1:-1, 1:-1]
 
 
 def priority_flood_fill(grid: np.ndarray) -> np.ndarray:
@@ -53,32 +126,7 @@ def priority_flood_fill(grid: np.ndarray) -> np.ndarray:
     signal, but filled depressions come out perfectly flat, which breaks D8 flow routing. The
     epsilon-gradient variant needed for that (Phase 4) is a separate function, not this one.
     """
-    rows, cols = grid.shape
-    filled = grid.astype(np.float64, copy=True)
-    visited = np.zeros(grid.shape, dtype=bool)
-    heap = []
-
-    for r in range(rows):
-        for c in (0, cols - 1):
-            if not visited[r, c]:
-                visited[r, c] = True
-                heapq.heappush(heap, (filled[r, c], r, c))
-    for c in range(cols):
-        for r in (0, rows - 1):
-            if not visited[r, c]:
-                visited[r, c] = True
-                heapq.heappush(heap, (filled[r, c], r, c))
-
-    while heap:
-        elevation, r, c = heapq.heappop(heap)
-        for dr, dc in _NEIGHBORS:
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < rows and 0 <= nc < cols and not visited[nr, nc]:
-                visited[nr, nc] = True
-                filled[nr, nc] = max(filled[nr, nc], elevation)
-                heapq.heappush(heap, (filled[nr, nc], nr, nc))
-
-    return filled
+    return _flood_fill_core(grid, epsilon=0.0)
 
 
 def priority_flood_fill_epsilon(grid: np.ndarray, epsilon: float = 1e-3) -> np.ndarray:
@@ -92,34 +140,7 @@ def priority_flood_fill_epsilon(grid: np.ndarray, epsilon: float = 1e-3) -> np.n
     Each newly resolved cell is raised to at least `epsilon` above the cell it was reached from,
     so filled areas slope gently toward their outlet.
     """
-    rows, cols = grid.shape
-    filled = grid.astype(np.float64, copy=True)
-    visited = np.zeros(grid.shape, dtype=bool)
-    heap = []
-
-    for r in range(rows):
-        for c in (0, cols - 1):
-            if not visited[r, c]:
-                visited[r, c] = True
-                heapq.heappush(heap, (filled[r, c], r, c))
-    for c in range(cols):
-        for r in (0, rows - 1):
-            if not visited[r, c]:
-                visited[r, c] = True
-                heapq.heappush(heap, (filled[r, c], r, c))
-
-    while heap:
-        elevation, r, c = heapq.heappop(heap)
-        for dr, dc in _NEIGHBORS:
-            nr, nc = r + dr, c + dc
-            if 0 <= nr < rows and 0 <= nc < cols and not visited[nr, nc]:
-                visited[nr, nc] = True
-                # The only difference from the plain fill: +epsilon, so a filled region is a
-                # gentle ramp rather than a plateau.
-                filled[nr, nc] = max(filled[nr, nc], elevation + epsilon)
-                heapq.heappush(heap, (filled[nr, nc], nr, nc))
-
-    return filled
+    return _flood_fill_core(grid, epsilon=epsilon)
 
 
 def d8_flow_direction(filled: np.ndarray) -> np.ndarray:
@@ -159,25 +180,47 @@ def flow_accumulation(direction: np.ndarray, filled: np.ndarray) -> np.ndarray:
 
     Height order guarantees every upstream contributor is added before a cell is passed on, so
     one pass suffices (no iteration to convergence).
+
+    The pass itself is inherently sequential (each cell's total depends on cells already resolved),
+    so it cannot be vectorised — but everything *around* it can be. Downstream targets are resolved
+    to flat indices up front with numpy, leaving the hot loop with one array read, one comparison
+    and one add. That matters: on a 2048x1792 grid the original loop (divmod + bounds check +
+    neighbour lookup per cell, 3.7M iterations) took 58s, which is unacceptable now that ranking
+    depends on this (Tasks.md 4.9) rather than it running only for the top 5.
     """
     rows, cols = direction.shape
-    accumulation = np.ones((rows, cols), dtype=np.float64)
+    size = rows * cols
 
-    order = np.argsort(filled, axis=None)[::-1]  # highest first
+    # Flat index of each cell's downstream neighbour, or -1 where flow leaves the grid.
+    row_index, col_index = np.divmod(np.arange(size), cols)
     flat_direction = direction.ravel()
-    flat_accumulation = accumulation.ravel()
-
-    for flat_index in order:
-        d = flat_direction[flat_index]
-        if d < 0:
+    targets = np.full(size, -1, dtype=np.int64)
+    for code, (dr, dc) in enumerate(_NEIGHBORS):
+        selected = flat_direction == code
+        if not selected.any():
             continue
-        r, c = divmod(int(flat_index), cols)
-        dr, dc = _NEIGHBORS[d]
-        nr, nc = r + dr, c + dc
-        if 0 <= nr < rows and 0 <= nc < cols:
-            flat_accumulation[nr * cols + nc] += flat_accumulation[flat_index]
+        neighbour_row = row_index[selected] + dr
+        neighbour_col = col_index[selected] + dc
+        inside = (
+            (neighbour_row >= 0)
+            & (neighbour_row < rows)
+            & (neighbour_col >= 0)
+            & (neighbour_col < cols)
+        )
+        positions = np.flatnonzero(selected)[inside]
+        targets[positions] = neighbour_row[inside] * cols + neighbour_col[inside]
 
-    return flat_accumulation.reshape(rows, cols)
+    accumulation = np.ones(size, dtype=np.float64)
+    order = np.argsort(filled, axis=None)[::-1]  # highest first
+
+    targets_list = targets.tolist()
+    accumulation_list = accumulation.tolist()
+    for flat_index in order.tolist():
+        target = targets_list[flat_index]
+        if target >= 0:
+            accumulation_list[target] += accumulation_list[flat_index]
+
+    return np.array(accumulation_list, dtype=np.float64).reshape(rows, cols)
 
 
 def delineate_catchment(
@@ -211,13 +254,11 @@ def delineate_catchment(
 def polygon_to_mask(
     ring: list[list[float]],
     grid_shape: tuple[int, int],
-    xmin_tile: int,
-    ymin_tile: int,
-    zoom: int,
+    gridref: GridRef,
 ) -> np.ndarray:
     """Rasterise a lon/lat ring onto the elevation grid."""
     points = [
-        elevation_service.lonlat_to_pixel(lon, lat, xmin_tile, ymin_tile, zoom)
+        gridref.lonlat_to_pixel(lon, lat)
         for lon, lat in ring
     ]
     mask = np.zeros(grid_shape, dtype=np.uint8)
@@ -243,9 +284,7 @@ def select_pour_point(
     return divmod(flat, accumulation.shape[1])
 
 
-def mask_to_polygon(
-    mask: np.ndarray, xmin_tile: int, ymin_tile: int, zoom: int
-) -> dict | None:
+def mask_to_polygon(mask: np.ndarray, gridref: GridRef) -> dict | None:
     """Trace a boolean mask's outer boundary into a GeoJSON polygon."""
     found, _ = cv2.findContours(
         mask.astype(np.uint8) * 255, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
@@ -257,7 +296,7 @@ def mask_to_polygon(
     if len(approx) < 3:
         return None
     coordinates = [
-        elevation_service.pixel_to_lonlat(point[0][0], point[0][1], xmin_tile, ymin_tile, zoom)
+        gridref.pixel_to_lonlat(point[0][0], point[0][1])
         for point in approx
     ]
     coordinates.append(coordinates[0])
@@ -283,9 +322,7 @@ def extract_zone_properties(
     depth: np.ndarray,
     labels: np.ndarray,
     num_zones: int,
-    xmin_tile: int,
-    ymin_tile: int,
-    zoom: int,
+    gridref: GridRef,
     min_area_m2: float = DEFAULT_MIN_AREA_M2,
 ) -> list[dict]:
     """Turn each labeled depression into a scored candidate record: area, depth stats, boundary
@@ -297,13 +334,9 @@ def extract_zone_properties(
     if num_zones == 0:
         return []
 
-    # Ground resolution varies with latitude, so measure it at the grid's own centre rather than
-    # assuming a fixed value.
-    rows, cols = labels.shape
-    _, center_lat = elevation_service.pixel_to_lonlat(
-        cols / 2, rows / 2, xmin_tile, ymin_tile, zoom
-    )
-    resolution_m = elevation_service.ground_resolution(zoom, center_lat)
+    # Ground resolution comes from the grid's own georeferencing, so this is identical for a
+    # Mercator tile grid and for a contour-derived raster (Tasks_Phase2.md 2.1).
+    resolution_m = gridref.resolution_m
     cell_area_m2 = resolution_m**2
 
     zones = []
@@ -347,24 +380,16 @@ def extract_zone_properties(
         compactness = (4 * math.pi * polygon_area_m2) / (perimeter_m**2)
 
         ring = [
-            elevation_service.pixel_to_lonlat(
-                col_slice.start + point[0][0],
-                row_slice.start + point[0][1],
-                xmin_tile,
-                ymin_tile,
-                zoom,
+            gridref.pixel_to_lonlat(
+                col_slice.start + point[0][0], row_slice.start + point[0][1]
             )
             for point in approx
         ]
         ring.append(ring[0])  # GeoJSON rings must close
 
         rows_idx, cols_idx = np.nonzero(sub_mask)
-        centroid_lon, centroid_lat = elevation_service.pixel_to_lonlat(
-            col_slice.start + cols_idx.mean(),
-            row_slice.start + rows_idx.mean(),
-            xmin_tile,
-            ymin_tile,
-            zoom,
+        centroid_lon, centroid_lat = gridref.pixel_to_lonlat(
+            col_slice.start + cols_idx.mean(), row_slice.start + rows_idx.mean()
         )
 
         zones.append(
@@ -406,11 +431,106 @@ def score_and_rank(
         storage_volume_m3 = zone["area_ha"] * 10_000 * zone["mean_depth_m"]
         scored["storage_volume_m3"] = storage_volume_m3
         scored["score"] = storage_volume_m3 * zone["compactness"]
-        if zone["compactness"] < min_compactness:
+        # Water exclusion now runs BEFORE scoring (Tasks.md 3.12), so an already-excluded zone
+        # must keep its reason — overwriting it here would relabel an existing pond as a shape
+        # rejection and lose the more important finding.
+        if scored.get("excluded"):
+            pass
+        elif zone["compactness"] < min_compactness:
             scored["excluded"] = True
             scored["exclusion_reason"] = (
                 f"elongated (compactness {zone['compactness']:.3f} < {min_compactness}) "
-                "— likely a stream corridor, not a pond bowl"
+                "— likely an unmapped drainage line, not a pond bowl"
+            )
+        else:
+            scored["excluded"] = False
+            scored["exclusion_reason"] = None
+        ranked.append(scored)
+
+    ranked.sort(key=lambda z: (not z["excluded"], z["score"]), reverse=True)
+    for position, zone in enumerate(ranked, start=1):
+        zone["rank"] = position if not zone["excluded"] else None
+    return ranked
+
+
+def attach_catchment_metrics(
+    zones: list[dict],
+    labels: np.ndarray,
+    accumulation: np.ndarray,
+    cell_area_m2: float,
+) -> list[dict]:
+    """Give each zone the catchment area draining to it, straight off the accumulation grid.
+
+    Flow accumulation already stores, per pixel, its upstream cell count, and `select_pour_point`
+    defines a zone's outlet as its highest-accumulation cell — so the catchment *area* is a single
+    `.max()` over the zone mask. No per-zone flood fill is needed (Tasks.md 4.9).
+    `delineate_catchment()` is still required to *draw* a catchment, which is why that runs only
+    for the top N rather than for all ~450 candidates.
+    """
+    for zone in zones:
+        mask = labels == zone["candidate_id"]
+        if not mask.any():
+            zone["catchment_cells"] = 0.0
+            zone["catchment_area_m2"] = 0.0
+            continue
+        cells = float(accumulation[mask].max())
+        zone["catchment_cells"] = cells
+        zone["catchment_area_m2"] = cells * cell_area_m2
+    return zones
+
+
+def score_and_rank_by_water(
+    zones: list[dict],
+    rainfall_mm: float,
+    min_compactness: float = MIN_COMPACTNESS,
+    mode: str = "sufficiency",
+) -> list[dict]:
+    """Rank candidates by how much water actually reaches them (Tasks.md 6.4).
+
+    Supersedes `score_and_rank`'s pure volume x compactness score, which asked only "is this a good
+    bowl?" and never "does water actually get there?" — a perfect bowl with no catchment is a dry
+    hole.
+
+    Two modes, both defensible; see Tasks.md 6.4 for the comparison that chose the default:
+      - "water"       : score = runoff volume delivered by one design storm. The literal reading of
+                        "rank which zone accumulates more water".
+      - "sufficiency" : score = capacity x min(runoff/capacity, 1). Rewards a site until it can
+                        fill, then stops — no bonus for a catchment 200x oversized, which would
+                        otherwise promote sites on (unmapped) drainage lines.
+
+    Zones already excluded (water bodies, 3.12) keep their reason; the compactness floor is applied
+    here as a backstop for unmapped drainage lines (3.13), not as the primary river filter.
+    """
+    from app.services import pond_sizing
+
+    ranked = []
+    for zone in zones:
+        scored = dict(zone)
+        pond_area_m2 = zone["area_ha"] * 10_000
+        storage_volume_m3 = pond_area_m2 * zone["mean_depth_m"]
+        capacity_m3 = pond_sizing.pond_capacity_m3(pond_area_m2)
+        runoff_m3 = pond_sizing.runoff_volume_m3(
+            zone.get("catchment_area_m2", 0.0), rainfall_mm
+        )
+
+        scored["storage_volume_m3"] = storage_volume_m3
+        scored["capacity_m3"] = capacity_m3
+        scored["runoff_m3"] = runoff_m3
+        scored["fill_ratio"] = pond_sizing.fill_ratio(runoff_m3, capacity_m3)
+        scored["capture_fraction"] = pond_sizing.capture_fraction(capacity_m3, runoff_m3)
+
+        if mode == "water":
+            scored["score"] = runoff_m3
+        else:
+            scored["score"] = capacity_m3 * min(scored["fill_ratio"], 1.0)
+
+        if scored.get("excluded"):
+            pass
+        elif zone["compactness"] < min_compactness:
+            scored["excluded"] = True
+            scored["exclusion_reason"] = (
+                f"elongated (compactness {zone['compactness']:.3f} < {min_compactness}) "
+                "— likely an unmapped drainage line, not a pond bowl"
             )
         else:
             scored["excluded"] = False
