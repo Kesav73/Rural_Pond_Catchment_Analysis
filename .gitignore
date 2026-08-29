@@ -16,3 +16,5 @@ backend/data/*.geojson
 
 # Local task tracking, not for the repo
 Tasks.md
+Phase2_req.md
+Tasks_Phase2.md
