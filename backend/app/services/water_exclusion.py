@@ -40,15 +40,22 @@ def build_water_index(overpass_result: dict) -> STRtree | None:
 def annotate_water_exclusion(
     candidates: list[dict], water_index: STRtree | None, worldcover_result: dict | None
 ) -> list[dict]:
-    """Mark candidates that sit on an existing water body.
+    """Mark candidates that sit on — or too close to — an existing water body.
 
-    Two independent sources, either of which can trigger exclusion (see Tasks.md 3.5):
-      - OSM/Overpass: things a human explicitly mapped (rivers, canals, lakes, reservoirs)
-      - ESA WorldCover: satellite-classified water, which catches the small unmapped farm ponds
-        OSM misses in rural Chhattisgarh
+    Runs BEFORE scoring/ranking (Tasks.md 3.12). That ordering is what makes catchment-based
+    ranking safe: mapped channels are gone from the pool before anything is ranked, so ranking by
+    "how much water drains here" cannot promote a river. It therefore does not assign ranks —
+    `score_and_rank` does that afterwards over the survivors.
 
-    Neither is authoritative alone, so this is a union, not an intersection. Candidates already
-    excluded for shape (3.4) keep their original reason — shape exclusion is checked first.
+    Sources, unioned (none is authoritative alone):
+      - OSM/Overpass: things a human explicitly mapped. A *bonus* source — every mirror was
+        unreachable or serving an empty database as of 2026-08-29 (see overpass._looks_empty)
+      - WorldCover class 80 OR dark SWIR, already unioned and dilated by WATER_BUFFER_M upstream
+        in `worldcover.fetch_water_mask` — this is the primary signal
+
+    Waterways keep the small 15 m buffer applied in `_to_shapely`, deliberately unlike the 50 m
+    body buffer: a pond *near a stream* is desirable (that is the inflow); only one sitting in the
+    channel is disqualifying.
     """
     for candidate in candidates:
         ring = candidate["geometry"]["coordinates"][0]
@@ -75,28 +82,19 @@ def annotate_water_exclusion(
         candidate["osm_water_fraction"] = osm_fraction
         candidate["worldcover_water_fraction"] = cover_fraction
 
-        is_water = (
-            osm_fraction >= OSM_OVERLAP_THRESHOLD
-            or cover_fraction >= worldcover.WATER_OVERLAP_THRESHOLD
-        )
-        if is_water and not candidate.get("excluded"):
-            sources = []
-            if osm_fraction >= OSM_OVERLAP_THRESHOLD:
-                sources.append(f"OSM water {osm_fraction:.0%}")
-            if cover_fraction >= worldcover.WATER_OVERLAP_THRESHOLD:
-                sources.append(f"ESA WorldCover water {cover_fraction:.0%}")
+        reasons = []
+        if osm_fraction >= OSM_OVERLAP_THRESHOLD:
+            reasons.append(f"OSM mapped water {osm_fraction:.0%}")
+        if cover_fraction >= worldcover.WATER_OVERLAP_THRESHOLD:
+            reasons.append(f"satellite water within {worldcover.WATER_BUFFER_M:.0f} m {cover_fraction:.0%}")
+
+        if reasons and not candidate.get("excluded"):
             candidate["excluded"] = True
             candidate["exclusion_reason"] = (
-                "already an existing water body (" + ", ".join(sources) + ")"
+                "on or beside an existing water body (" + ", ".join(reasons) + ")"
             )
-
-    # Ranks were assigned before water exclusion, so renumber over the survivors.
-    candidates.sort(key=lambda c: (not c["excluded"], c["score"]), reverse=True)
-    rank = 0
-    for candidate in candidates:
-        if candidate["excluded"]:
-            candidate["rank"] = None
         else:
-            rank += 1
-            candidate["rank"] = rank
+            candidate.setdefault("excluded", False)
+            candidate.setdefault("exclusion_reason", None)
+
     return candidates
