@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.db import postgres
-from app.routers import candidates, catchment, contours, regions
+from app.routers import analyze_contour, candidates, catchment, contours, regions
 
 
 @asynccontextmanager
@@ -41,3 +41,4 @@ app.include_router(regions.router)
 app.include_router(contours.router)
 app.include_router(candidates.router)
 app.include_router(catchment.router)
+app.include_router(analyze_contour.router)
