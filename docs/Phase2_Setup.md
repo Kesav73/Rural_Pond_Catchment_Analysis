@@ -1,5 +1,34 @@
 # Installation and running — Phase 2
 
+## Deployed instance
+
+**`http://10.1.75.53:4282`**
+
+```bash
+curl -X POST http://10.1.75.53:4282/api/analyzeContour \
+     -F "file=@backend/data/contours_1m.kml"
+```
+
+Interactive docs: <http://10.1.75.53:4282/docs>
+
+Runs in a container reachable only on the institute network. Port 4000 inside maps to 4282
+outside; 3282/4282/5282/6282/7282 map to 3000/4000/5000/6000/7000 respectively, and 3000 was
+already taken. Managed by `~/start_api.sh` (start or restart) and `~/supervise.sh` (restarts
+uvicorn if it dies). There is no cron or systemd in the container, so **the API does not come back
+automatically after a container restart** — re-run `bash ~/start_api.sh` over SSH.
+
+### Container limits worth knowing
+
+The container is capped at **512 MB memory and 1 CPU**. Note that `free` and `nproc` inside it
+report the *host's* hardware (128 GB, 120 CPUs) and are misleading; the real limits are in
+`/sys/fs/cgroup/memory.max` and `/sys/fs/cgroup/cpu.max`.
+
+The sample map peaks at ~382 MB, which fits — but only after `flow_accumulation` was changed to
+keep numpy arrays instead of Python lists. The list version cost 158 MB more and was OOM-killed
+here. A substantially larger contour map may still exceed the limit; pass a coarser `resolution_m`
+if so.
+
+
 ## Requirements
 
 - Python 3.12
