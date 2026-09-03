@@ -6,7 +6,7 @@ Run against the provided sample contour map, `backend/data/contours_1m.kml` (6.7
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/analyzeContour \
-     -F "file=@backend/data/contours_1m.kml"
+     -F "contour_map=@backend/data/contours_1m.kml"
 ```
 
 `HTTP 200` in **45.0 s**.

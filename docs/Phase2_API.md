@@ -21,7 +21,7 @@ suitable pond location, and returns the catchment area draining to it.
 
 | Field | In | Type | Required | Default | Meaning |
 |---|---|---|---|---|---|
-| `file` | form-data | file | **yes** | — | Contour map, `.kml` or `.kmz`. KMZ is detected by zip signature, not by extension. |
+| `contour_map` | form-data | file | **yes** | — | Contour map, `.kml` or `.kmz`. KMZ is detected by zip signature, not by extension. `file` is accepted as an alias. |
 | `resolution_m` | query | float | no | derived | Grid cell size in metres. Omitted → derived from the map's own measured contour spacing. |
 | `min_depth` | query | float | no | derived | Minimum depression depth in metres. Omitted → one contour interval. |
 | `top_n` | query | int (1–50) | no | `5` | How many ranked sites to return (1 primary + `top_n − 1` alternatives). |
@@ -30,14 +30,14 @@ suitable pond location, and returns the catchment area draining to it.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/analyzeContour \
-     -F "file=@backend/data/contours_1m.kml"
+     -F "contour_map=@backend/data/contours_1m.kml"
 ```
 
 With overrides:
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/api/analyzeContour?resolution_m=5&top_n=3" \
-     -F "file=@my_survey.kmz"
+     -F "contour_map=@my_survey.kmz"
 ```
 
 ---

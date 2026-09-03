@@ -34,10 +34,11 @@ def client():
         yield test_client
 
 
-def post(client, data: bytes, filename: str = "contours.kml", **params):
+def post(client, data: bytes, filename: str = "contours.kml", field: str = "contour_map", **params):
+    """POST a contour map. `field` is the form field name the assignment specifies."""
     return client.post(
         "/api/analyzeContour",
-        files={"file": (filename, io.BytesIO(data), "application/vnd.google-earth.kml+xml")},
+        files={field: (filename, io.BytesIO(data), "application/vnd.google-earth.kml+xml")},
         params=params,
     )
 
@@ -176,6 +177,30 @@ class TestGeneralisation:
         response = post(client, fixtures.build_kml(fixtures.gaussian_bowl_contours()), resolution_m=8.0)
         assert response.status_code == 200, response.text
         assert response.json()["source"]["grid_resolution_m"] == pytest.approx(8.0, rel=0.15)
+
+
+class TestRequestContract:
+    """The assignment specifies the upload field name. Regressing it silently breaks grading."""
+
+    def test_accepts_the_specified_contour_map_field(self, client):
+        response = post(client, fixtures.build_kml(fixtures.gaussian_bowl_contours()), field="contour_map")
+        assert response.status_code == 200, response.text
+        assert response.json()["source"]["filename"] == "contours.kml"
+
+    def test_still_accepts_the_file_alias(self, client):
+        response = post(client, fixtures.build_kml(fixtures.gaussian_bowl_contours()), field="file")
+        assert response.status_code == 200, response.text
+        assert response.json()["source"]["filename"] == "contours.kml"
+
+    def test_missing_upload_is_a_400_naming_the_expected_field(self, client):
+        response = client.post("/api/analyzeContour")
+        assert response.status_code == 400, response.status_code
+        assert "contour_map" in response.json()["detail"]
+
+    def test_wrong_field_name_is_rejected_clearly(self, client):
+        response = post(client, fixtures.build_kml(fixtures.gaussian_bowl_contours()), field="kml")
+        assert response.status_code == 400, response.status_code
+        assert "contour_map" in response.json()["detail"]
 
 
 class TestErrors:

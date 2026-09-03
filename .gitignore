@@ -18,3 +18,7 @@ backend/data/*.geojson
 Tasks.md
 Phase2_req.md
 Tasks_Phase2.md
+
+# Generated submission report (published as an artifact)
+Phase2_Report.html
+Phase2_Report.pdf

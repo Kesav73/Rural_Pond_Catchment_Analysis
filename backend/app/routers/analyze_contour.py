@@ -44,7 +44,8 @@ def _fail(status: int, message: str):
 
 @router.post("/analyzeContour")
 async def analyze_contour(
-    file: UploadFile = File(..., description="Contour map, .kml or .kmz"),
+    contour_map: UploadFile | None = File(None, description="Contour map, .kml or .kmz"),
+    file: UploadFile | None = File(None, description="Alias for contour_map"),
     resolution_m: float | None = Query(
         None, description="Grid resolution in metres; derived from contour spacing when omitted"
     ),
@@ -53,7 +54,13 @@ async def analyze_contour(
     ),
     top_n: int = Query(5, ge=1, le=50, description="How many ranked sites to return"),
 ):
-    data = await file.read()
+    # The assignment specifies the form field name `contour_map`. `file` is kept as an accepted
+    # alias so older clients and our own scripts keep working; `contour_map` wins if both are sent.
+    upload = contour_map or file
+    if upload is None:
+        _fail(400, "no contour map uploaded - send it as form field 'contour_map'")
+
+    data = await upload.read()
     if not data:
         _fail(400, "uploaded file is empty")
     if len(data) > MAX_UPLOAD_BYTES:
@@ -247,7 +254,7 @@ async def analyze_contour(
             ],
         },
         "source": {
-            "filename": file.filename,
+            "filename": upload.filename,
             "bytes": len(data),
             "contour_lines": len(parsed.lines),
             "contour_levels": len(parsed.levels),

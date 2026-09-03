@@ -25,7 +25,7 @@ API = "http://127.0.0.1:8000/api/analyzeContour"
 
 async def main(path: str) -> int:
     with open(path, "rb") as handle:
-        files = {"file": (path.split("/")[-1], handle.read())}
+        files = {"contour_map": (path.split("/")[-1], handle.read())}
     async with httpx.AsyncClient(timeout=1200) as client:
         response = await client.post(API, files=files)
     if response.status_code != 200:

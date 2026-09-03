@@ -79,7 +79,7 @@ async def main(path: str, out: str) -> int:
     min_lon, min_lat, max_lon, max_lat = parsed.bbox()
 
     with open(path, "rb") as handle:
-        files = {"file": (os.path.basename(path), handle.read())}
+        files = {"contour_map": (os.path.basename(path), handle.read())}
     async with httpx.AsyncClient(timeout=1800) as client:
         response = await client.post(API, files=files)
     if response.status_code != 200:
