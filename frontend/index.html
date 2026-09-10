@@ -1,46 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Village Pond Planning System</title>
-  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="vendor/leaflet-geoman/leaflet-geoman.css">
-  <link rel="stylesheet" href="style.css">
-</head>
-<body>
-  <header id="controls">
-    <label>
-      State
-      <div class="combo">
-        <input type="text" id="state-input" placeholder="Loading states…" autocomplete="off">
-        <div class="combo-list" id="state-list" hidden></div>
-      </div>
-    </label>
-    <label>
-      District
-      <div class="combo">
-        <input type="text" id="district-input" placeholder="Select state first…" autocomplete="off" disabled>
-        <div class="combo-list" id="district-list" hidden></div>
-      </div>
-    </label>
-    <label>
-      Village <span id="village-hint"></span>
-      <div class="combo">
-        <input type="text" id="village-input" placeholder="Select district first…" autocomplete="off" disabled>
-        <div class="combo-list" id="village-list" hidden></div>
-      </div>
-    </label>
-    <button id="go-btn" disabled>Enter</button>
-    <button id="contours-btn" disabled>Show Contours</button>
-    <button id="candidates-btn" disabled>Find Pond Sites</button>
-    <span id="status-msg"></span>
-  </header>
-
-  <main id="map"></main>
-
-  <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="vendor/leaflet-geoman/leaflet-geoman.js"></script>
-  <script src="app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Village Pond Planning System</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

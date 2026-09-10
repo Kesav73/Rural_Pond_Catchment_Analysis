@@ -15,7 +15,7 @@
   box-sizing: border-box;
 }
 
-html, body {
+html, body, #root {
   height: 100%;
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -232,6 +232,44 @@ body {
 
 .btn-row .btn {
   flex: 1;
+}
+
+/* --- Drawn region readout ------------------------------------------------------------------ */
+
+.region-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--sidebar-border);
+  border-left: 3px solid var(--accent);
+}
+
+.region-readout-warn {
+  border-left-color: var(--danger);
+}
+
+.region-area {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.region-shape {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.region-warning {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: #ffd6d1;
 }
 
 /* --- Status ------------------------------------------------------------------------------- */

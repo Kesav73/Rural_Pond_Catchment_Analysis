@@ -35,7 +35,11 @@ const villageHint = document.getElementById("village-hint");
 const goBtn = document.getElementById("go-btn");
 const contoursBtn = document.getElementById("contours-btn");
 const candidatesBtn = document.getElementById("candidates-btn");
+const statusBar = document.getElementById("status-bar");
+const statusSpinner = document.getElementById("status-spinner");
 const statusMsg = document.getElementById("status-msg");
+const resultsPanel = document.getElementById("results-panel");
+const resultsList = document.getElementById("results-list");
 
 let districtsByName = {};
 let villagesById = {};
@@ -48,9 +52,24 @@ let buildingLayer = null;
 let catchmentLayer = null;
 let pourPointMarker = null;
 let catchmentsByIndex = {};
+let candidateLayersByIndex = {};
 
-function setStatus(text) {
+// `busy` shows the spinner and forces the "info" tone (a pending operation isn't a result yet).
+// Without a tone hint, a plain heuristic on the text keeps every existing setStatus(...) call
+// working unchanged elsewhere in this file.
+function setStatus(text, { busy = false } = {}) {
+  statusBar.hidden = false;
   statusMsg.textContent = text;
+  statusSpinner.hidden = !busy;
+  const tone = busy
+    ? "status-info"
+    : /fail/i.test(text)
+      ? "status-error"
+      : /^(loaded|top \d|no suitable)/i.test(text)
+        ? "status-success"
+        : "status-info";
+  statusBar.classList.remove("status-info", "status-success", "status-error");
+  statusBar.classList.add(tone);
 }
 
 // A type-to-filter dropdown backed by a plain text <input> + an absolutely-positioned list of
@@ -190,7 +209,7 @@ function resetDistrictsAndBelow() {
 }
 
 async function loadStates() {
-  setStatus("Loading states…");
+  setStatus("Loading states…", { busy: true });
   try {
     const res = await fetch(`${API_BASE}/states`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -204,7 +223,7 @@ async function loadStates() {
 }
 
 async function loadDistricts(stateName) {
-  setStatus(`Loading districts for ${stateName}…`);
+  setStatus(`Loading districts for ${stateName}…`, { busy: true });
   resetContours();
   resetDistrictsAndBelow();
   try {
@@ -333,7 +352,7 @@ function updateLegend(minE, maxE) {
 async function loadContours() {
   const bounds = map.getBounds();
   const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(",");
-  setStatus("Loading contours…");
+  setStatus("Loading contours…", { busy: true });
   contoursBtn.disabled = true;
   try {
     const res = await fetch(`${API_BASE}/contours?bbox=${encodeURIComponent(bbox)}&interval=2`);
@@ -504,6 +523,41 @@ function clearCandidates() {
   catchmentLayer = null;
   pourPointMarker = null;
   catchmentsByIndex = {};
+  candidateLayersByIndex = {};
+  resultsPanel.hidden = true;
+  resultsList.innerHTML = "";
+}
+
+// Sizing (capacity/runoff/capture) already arrives with the initial /api/candidates response
+// (Phase 6 moved it upstream of ranking), so this list is populate-able immediately — it doesn't
+// need to wait on the slower /api/catchment call the way the popup's warnings block does.
+function renderResultsPanel(features) {
+  resultsList.innerHTML = "";
+  features.forEach((feature, index) => {
+    const p = feature.properties;
+    const stats = [`${p.area_ha.toFixed(2)} ha pond`];
+    if (p.catchment_area_m2 != null) stats.push(`${(p.catchment_area_m2 / 10000).toFixed(1)} ha catchment`);
+    if (p.capacity_m3 != null) stats.push(`${Math.round(p.capacity_m3).toLocaleString()} m³ capacity`);
+    if (p.capture_fraction != null) stats.push(`${(p.capture_fraction * 100).toFixed(0)}% captured`);
+
+    const card = document.createElement("div");
+    card.className = "result-card";
+    card.style.setProperty("--rank-color", rankColor(p.rank));
+    card.innerHTML = `
+      <div class="result-rank">${p.rank}</div>
+      <div class="result-body">
+        <div class="result-title">Site #${p.rank}</div>
+        <div class="result-stats">${stats.map((s) => `<span>${s}</span>`).join("")}</div>
+      </div>`;
+    card.addEventListener("click", () => {
+      const layer = candidateLayersByIndex[index];
+      if (!layer) return;
+      map.flyToBounds(layer.getBounds(), { padding: [60, 60], maxZoom: 17 });
+      layer.openPopup();
+    });
+    resultsList.appendChild(card);
+  });
+  resultsPanel.hidden = features.length === 0;
 }
 
 async function loadBuildings(bbox) {
@@ -525,7 +579,7 @@ async function loadBuildings(bbox) {
 async function loadCandidates() {
   const bounds = map.getBounds();
   const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(",");
-  setStatus("Finding pond sites…");
+  setStatus("Finding pond sites…", { busy: true });
   candidatesBtn.disabled = true;
   try {
     const res = await fetch(`${API_BASE}/candidates?bbox=${encodeURIComponent(bbox)}&top_n=5`);
@@ -552,6 +606,7 @@ async function loadCandidates() {
       }),
       onEachFeature: (feature, layer) => {
         const featureIndex = body.features.indexOf(feature);
+        candidateLayersByIndex[featureIndex] = layer;
         layer.bindPopup(candidatePopup(feature.properties, featureIndex));
         layer.on("popupopen", () => showCatchment(featureIndex));
         layer.bindTooltip(`#${feature.properties.rank}`, {
@@ -561,6 +616,8 @@ async function loadCandidates() {
         });
       },
     }).addTo(map);
+
+    renderResultsPanel(body.features);
 
     // Deliberately not awaited: buildings are an optional warning layer, and when Overpass is
     // slow or unreachable awaiting it left the results invisible behind a "Finding pond sites…"
