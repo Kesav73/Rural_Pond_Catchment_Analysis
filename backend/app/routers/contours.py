@@ -12,7 +12,12 @@ router = APIRouter(prefix="/api", tags=["contours"])
 
 
 @router.get("/contours")
-async def get_contours(bbox: str, interval: float = 2.0):
+async def get_contours(bbox: str, interval: float = 2.0, style: str = "bands"):
+    """Contours for a bbox: filled elevation `bands` (default) or iso-`lines` clipped to the bbox."""
+    if style not in ("bands", "lines"):
+        raise HTTPException(status_code=400, detail="style must be 'bands' or 'lines'")
+    if interval <= 0:
+        raise HTTPException(status_code=400, detail="interval must be positive")
     try:
         min_lon, min_lat, max_lon, max_lat = (float(v) for v in bbox.split(","))
     except ValueError:
@@ -23,6 +28,10 @@ async def get_contours(bbox: str, interval: float = 2.0):
     zoom = settings.default_elevation_zoom
     cache_key = (
         f"contours:{min_lon:.5f}:{min_lat:.5f}:{max_lon:.5f}:{max_lat:.5f}:{zoom}:{interval}"
+    ) + (
+        # Both styles are clipped to the bbox. Bands gained clipping later than lines, so they use a
+        # new key rather than the old one, which would serve unclipped bands from the cache.
+        ":bands-clip" if style == "bands" else ":lines"
     )
 
     pool = await postgres.get_pool()
@@ -42,7 +51,14 @@ async def get_contours(bbox: str, interval: float = 2.0):
 
     smoothed = contours_service.smooth(grid)
     gridref = gridref_service.TileGridRef(xmin_tile, ymin_tile, zoom, grid.shape)
-    result = contours_service.extract_contour_bands(smoothed, gridref, interval)
+    if style == "lines":
+        result = contours_service.extract_contour_lines(
+            smoothed, gridref, interval, clip_bbox=(min_lon, min_lat, max_lon, max_lat)
+        )
+    else:
+        result = contours_service.extract_contour_bands(
+            smoothed, gridref, interval, clip_bbox=(min_lon, min_lat, max_lon, max_lat)
+        )
 
     async with pool.acquire() as conn:
         await conn.execute(

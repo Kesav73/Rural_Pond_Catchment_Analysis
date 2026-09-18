@@ -96,6 +96,13 @@ def capture_fraction(capacity_m3: float, runoff_m3: float) -> float:
     return min(1.0, capacity_m3 / runoff_m3)
 
 
+def expected_volume_m3(capacity_m3: float, runoff_m3: float) -> float:
+    """Water the pond can actually collect from one design storm: whichever runs out first, the
+    runoff reaching it or the room to hold it. Also the "sufficiency" ranking score, so the number
+    shown to the user and the number sites are ranked by are the same figure."""
+    return max(0.0, min(capacity_m3, runoff_m3))
+
+
 def fill_ratio(runoff_m3: float, capacity_m3: float) -> float:
     """How many times over one design storm fills the pond. <1 means it cannot fill."""
     if capacity_m3 <= 0:

@@ -1,50 +1,37 @@
-const API_BASE = "http://127.0.0.1:8000/api";
+// Relative by default: in dev Vite proxies `/api` to the backend (vite.config.js), and in production
+// the frontend is served from behind the same origin as the API. VITE_API_BASE overrides both.
+const API_BASE = import.meta.env.VITE_API_BASE ?? "/api";
 
-async function getJson(res) {
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-// Endpoints that return a structured 4xx body ({"detail": "..."}) surface that message; endpoints
-// that don't (states/districts/villages/buildings — see the routers) fall back to a plain HTTP code.
+// FastAPI errors carry a `{"detail": "..."}` body; surface that message when there is one, and fall
+// back to the bare status code when there isn't (e.g. a proxy error page).
 async function getJsonWithDetail(res) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
   return body;
 }
 
-export function fetchStates() {
-  return fetch(`${API_BASE}/states`).then(getJson);
+// Every call takes an optional AbortSignal so a run for a region the user has since redrawn can be
+// cancelled rather than left to finish and draw stale results.
+export function fetchContours(bbox, interval, { style = "bands", signal } = {}) {
+  const params = new URLSearchParams({ bbox, interval, style });
+  return fetch(`${API_BASE}/contours?${params}`, { signal }).then(getJsonWithDetail);
 }
 
-export function fetchDistricts(stateName) {
-  return fetch(`${API_BASE}/districts?state=${encodeURIComponent(stateName)}`).then(getJson);
+export function fetchCandidates(bbox, topN, { signal } = {}) {
+  const params = new URLSearchParams({ bbox, top_n: topN });
+  return fetch(`${API_BASE}/candidates?${params}`, { signal }).then(getJsonWithDetail);
 }
 
-export function fetchVillages(districtName) {
-  return fetch(`${API_BASE}/villages?district=${encodeURIComponent(districtName)}`).then(getJson);
+export function fetchBuildings(bbox, { signal } = {}) {
+  const params = new URLSearchParams({ bbox });
+  return fetch(`${API_BASE}/buildings?${params}`, { signal }).then(getJsonWithDetail);
 }
 
-export function fetchContours(bbox, interval) {
-  return fetch(`${API_BASE}/contours?bbox=${encodeURIComponent(bbox)}&interval=${interval}`).then(
-    getJsonWithDetail
-  );
-}
-
-export function fetchCandidates(bbox, topN) {
-  return fetch(`${API_BASE}/candidates?bbox=${encodeURIComponent(bbox)}&top_n=${topN}`).then(
-    getJsonWithDetail
-  );
-}
-
-export function fetchBuildings(bbox) {
-  return fetch(`${API_BASE}/buildings?bbox=${encodeURIComponent(bbox)}`).then(getJson);
-}
-
-export function fetchCatchments(bbox, polygons) {
+export function fetchCatchments(bbox, polygons, ranks, { signal } = {}) {
   return fetch(`${API_BASE}/catchment`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ bbox, polygons }),
-  }).then(getJson);
+    body: JSON.stringify({ bbox, polygons, ranks }),
+    signal,
+  }).then(getJsonWithDetail);
 }

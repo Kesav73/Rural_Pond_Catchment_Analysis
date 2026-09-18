@@ -24,7 +24,13 @@ router = APIRouter(prefix="/api", tags=["candidates"])
 #   v2 -> v3: 2026-08-29 pipeline reorder — min_depth 0.3->1.5 m (3.10), water exclusion moved
 #             before ranking with SWIR + 50 m buffer (3.12), ranking now driven by catchment-fed
 #             runoff volume rather than volume x compactness (4.9 / 6.2 / 6.4).
-CACHE_VERSION = 3
+#   v3 -> v4: 2026-09-18 Phase 3 — `expected_volume_m3` on every candidate, `volume_basis` in the
+#             summary, geometry on excluded zones (3.1 / 3.3.13).
+CACHE_VERSION = 4
+
+# Excluded zones are returned with geometry so the "no sites" view can show what was rejected and
+# why. A bbox can hold hundreds of rejected specks, so only the largest are sent.
+MAX_EXCLUDED_WITH_GEOMETRY = 200
 
 
 def _parse_bbox(bbox: str) -> tuple[float, float, float, float]:
@@ -176,6 +182,8 @@ async def get_candidates(
             "min_depth_m": min_depth,
             "resolution_m": resolution_m,
             "design_storm_mm": design_storm_mm,
+            # `expected_volume_m3` is per design storm (max single-day rainfall), not per year.
+            "volume_basis": "design_storm",
             # Surfaced so the UI can be honest about a degraded check rather than implying
             # every returned site was fully water-screened (Tasks.md 9.6).
             "overpass_available": overpass_result["available"],
@@ -188,14 +196,19 @@ async def get_candidates(
         # so a placeholder is never presented as authoritative (Tasks.md 6.1 / 9.3).
         "assumptions": pond_sizing.constants_provenance(),
         # Kept for inspection/debugging: why something was dropped is as useful as what survived.
+        # Geometry lets the UI draw them (3.3.13).
         "excluded": [
             {
                 "candidate_id": c["candidate_id"],
                 "area_ha": c["area_ha"],
                 "compactness": c["compactness"],
                 "reason": c["exclusion_reason"],
+                "centroid": c["centroid"],
+                "geometry": c["geometry"],
             }
-            for c in excluded
+            for c in sorted(excluded, key=lambda c: c["area_ha"], reverse=True)[
+                :MAX_EXCLUDED_WITH_GEOMETRY
+            ]
         ],
     }
 

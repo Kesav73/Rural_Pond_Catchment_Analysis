@@ -192,6 +192,8 @@ async def analyze_contour(
                 "runoff_volume_m3": zone["runoff_m3"],
                 "recommended_depth_m": pond_sizing.POND_DEPTH_M,
                 "capacity_m3": zone["capacity_m3"],
+                "expected_volume_m3": zone["expected_volume_m3"],
+                "volume_basis": "design_storm",
                 "capture_fraction": zone["capture_fraction"],
                 "fill_ratio": zone["fill_ratio"],
             },

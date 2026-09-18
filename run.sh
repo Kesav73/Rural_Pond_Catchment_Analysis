@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs the backend (FastAPI) and frontend (static Leaflet app) together for local dev.
+# Runs the backend (FastAPI) and frontend (Vite dev server) together for local dev.
+# The frontend proxies /api to the backend (frontend/vite.config.js), so open the frontend URL only.
 # Ctrl+C stops both.
 
 set -e
@@ -19,6 +20,16 @@ if [ ! -f "$BACKEND_DIR/.env" ]; then
   exit 1
 fi
 
+if ! command -v npm > /dev/null; then
+  echo "npm not found — install Node.js 18+ first."
+  exit 1
+fi
+
+if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
+  echo "Installing frontend dependencies..."
+  (cd "$FRONTEND_DIR" && npm install)
+fi
+
 cleanup() {
   echo ""
   echo "Stopping..."
@@ -36,12 +47,12 @@ BACKEND_PID=$!
 
 (
   cd "$FRONTEND_DIR"
-  python3 -m http.server 5500
+  npm run dev -- --host 127.0.0.1
 ) &
 FRONTEND_PID=$!
 
-echo "Backend:  http://127.0.0.1:8000  (docs at /docs)"
-echo "Frontend: http://127.0.0.1:5500/index.html"
+echo "Frontend: http://127.0.0.1:5500   (open this)"
+echo "Backend:  http://127.0.0.1:8000   (API docs at /docs)"
 echo "Press Ctrl+C to stop both."
 
 wait "$BACKEND_PID" "$FRONTEND_PID"

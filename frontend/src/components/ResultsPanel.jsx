@@ -1,47 +1,85 @@
+import { useEffect, useRef } from "react";
 import { rankColor } from "../colors";
+import * as fmt from "../format";
 
-// Sizing (capacity/runoff/capture) already arrives with the initial /api/candidates response
-// (Phase 6 moved it upstream of ranking), so this list is populated immediately — it doesn't need
-// to wait on the slower /api/catchment call the way the popup's warnings block does.
-export default function ResultsPanel({ features, onSelect }) {
+function SkeletonRows() {
+  return (
+    <div className="result-list" aria-hidden="true">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="result-row is-skeleton">
+          <div className="skeleton skeleton-badge" />
+          <div className="result-body">
+            <div className="skeleton skeleton-line" />
+            <div className="skeleton skeleton-line short" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// The ranking only: which pond, in what order, and the one number that decided the order. Everything
+// else about a pond — its catchment, capacity, depth, warnings — is one click away, in its details.
+export default function ResultsPanel({ loading, features, summary, selectedRank, onSelect, onExport }) {
+  const rowRefs = useRef({});
+
+  // A pond picked on the map should be findable in the list without hunting for it.
+  useEffect(() => {
+    if (selectedRank != null) {
+      rowRefs.current[selectedRank]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }, [selectedRank]);
+
   return (
     <section className="panel">
       <h2>
-        <span className="step-num">3</span>Ranked sites
+        <span className="step-num">3</span>Best pond locations
       </h2>
-      <div id="results-list">
-        {features.map((feature, index) => {
-          const p = feature.properties;
-          const stats = [`${p.area_ha.toFixed(2)} ha pond`];
-          if (p.catchment_area_m2 != null) {
-            stats.push(`${(p.catchment_area_m2 / 10000).toFixed(1)} ha catchment`);
-          }
-          if (p.capacity_m3 != null) {
-            stats.push(`${Math.round(p.capacity_m3).toLocaleString()} m³ capacity`);
-          }
-          if (p.capture_fraction != null) {
-            stats.push(`${(p.capture_fraction * 100).toFixed(0)}% captured`);
-          }
-          return (
-            <div
-              key={index}
-              className="result-card"
-              style={{ "--rank-color": rankColor(p.rank) }}
-              onClick={() => onSelect(index)}
-            >
-              <div className="result-rank">{p.rank}</div>
-              <div className="result-body">
-                <div className="result-title">Site #{p.rank}</div>
-                <div className="result-stats">
-                  {stats.map((s, i) => (
-                    <span key={i}>{s}</span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+
+      {loading ? (
+        <SkeletonRows />
+      ) : (
+        <>
+          <p className="panel-hint">
+            Top {features.length} of {summary.eligible} suitable locations, best first. Click a pond
+            — here or on the map — to see its catchment and details.
+          </p>
+
+          <div className="result-list">
+            {features.map((feature) => {
+              const p = feature.properties;
+              const volume = fmt.expectedVolume(p);
+              const selected = selectedRank === p.rank;
+              return (
+                <button
+                  type="button"
+                  key={p.rank}
+                  ref={(el) => (rowRefs.current[p.rank] = el)}
+                  className={`result-row${selected ? " is-selected" : ""}`}
+                  style={{ "--rank-color": rankColor(p.rank) }}
+                  onClick={() => onSelect(p.rank)}
+                  aria-pressed={selected}
+                >
+                  <span className="result-rank">{p.rank}</span>
+                  <span className="result-body">
+                    <span className="result-title">Pond #{p.rank}</span>
+                    {volume != null && (
+                      <span className="result-sub">{fmt.m3(volume)} of water per heavy storm</span>
+                    )}
+                  </span>
+                  <span className="result-chevron" aria-hidden="true">
+                    ›
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button type="button" className="btn btn-outline btn-block" onClick={onExport}>
+            Download results (GeoJSON)
+          </button>
+        </>
+      )}
     </section>
   );
 }

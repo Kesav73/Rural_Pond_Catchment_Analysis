@@ -523,11 +523,12 @@ def score_and_rank_by_water(
         scored["runoff_m3"] = runoff_m3
         scored["fill_ratio"] = pond_sizing.fill_ratio(runoff_m3, capacity_m3)
         scored["capture_fraction"] = pond_sizing.capture_fraction(capacity_m3, runoff_m3)
+        scored["expected_volume_m3"] = pond_sizing.expected_volume_m3(capacity_m3, runoff_m3)
 
         if mode == "water":
             scored["score"] = runoff_m3
         else:
-            scored["score"] = capacity_m3 * min(scored["fill_ratio"], 1.0)
+            scored["score"] = scored["expected_volume_m3"]
 
         if scored.get("excluded"):
             pass

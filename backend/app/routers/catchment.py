@@ -35,6 +35,11 @@ SELF_OVERLAP_WARN_PCT = 50.0
 class CatchmentRequest(BaseModel):
     bbox: str = Field(..., description="minLon,minLat,maxLon,maxLat")
     polygons: list[dict] = Field(..., description="GeoJSON Polygon geometries")
+    ranks: list[int] | None = Field(
+        None,
+        description="Optional rank per polygon, echoed back as `rank` so results can be matched to "
+        "sites by rank rather than by array position",
+    )
 
 
 @router.post("/catchment")
@@ -52,6 +57,11 @@ async def compute_catchment(request: CatchmentRequest):
         raise HTTPException(status_code=400, detail="bbox must be 'minLon,minLat,maxLon,maxLat'")
     if not request.polygons:
         raise HTTPException(status_code=400, detail="at least one polygon is required")
+    if request.ranks is not None and len(request.ranks) != len(request.polygons):
+        raise HTTPException(status_code=400, detail="ranks must have one entry per polygon")
+
+    def rank_of(index: int) -> int | None:
+        return request.ranks[index] if request.ranks is not None else None
 
     try:
         grid, xmin_tile, ymin_tile, zoom = await elevation_service.get_elevation_grid(
@@ -89,6 +99,7 @@ async def compute_catchment(request: CatchmentRequest):
             results.append(
                 {
                     "index": index,
+                    "rank": rank_of(index),
                     "error": "polygon falls outside the elevation grid or is smaller than one cell",
                 }
             )
@@ -121,6 +132,7 @@ async def compute_catchment(request: CatchmentRequest):
         results.append(
             {
                 "index": index,
+                "rank": rank_of(index),
                 "geometry": terrain_service.mask_to_polygon(catchment_mask, gridref),
                 "area_ha": catchment_ha,
                 "pond_area_ha": pond_ha,
