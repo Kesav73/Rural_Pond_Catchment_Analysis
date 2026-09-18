@@ -3,6 +3,11 @@
 All items below were **actually called/executed**, not assumed. Test date: 2026-08-07.
 Test area used throughout: rural bbox near **Wardha, Maharashtra (20.75 N, 78.60 E)**.
 
+> **Historical document — early Phase 1 data-source verification.** Some sources/decisions here
+> changed later (e.g. the admin-boundary dropdown flow was replaced by draw-on-map + place search
+> in Phase 3). For current behaviour see **[../BACKEND_GUIDE.md § External data
+> sources](../BACKEND_GUIDE.md#external-data-sources)**.
+
 ---
 
 ## Summary

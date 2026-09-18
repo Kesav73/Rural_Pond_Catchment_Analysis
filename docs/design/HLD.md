@@ -2,6 +2,13 @@
 
 Assignment 1, CSD
 
+> **Historical document — Phase 1 design.** Kept as a record of the original plan. Several
+> decisions below were later superseded: the state/district/village dropdown flow was replaced by
+> draw-on-map + place search (Phase 3), and not every endpoint listed here (e.g. `/api/proposals`)
+> ended up wired to anything. For the system as it actually stands, see
+> **[../ARCHITECTURE.md](../ARCHITECTURE.md)**, **[../API_REFERENCE.md](../API_REFERENCE.md)**,
+> **[../BACKEND_GUIDE.md](../BACKEND_GUIDE.md)** and **[../FRONTEND_GUIDE.md](../FRONTEND_GUIDE.md)**.
+
 ---
 
 ## 1. Problem Statement and Objectives
